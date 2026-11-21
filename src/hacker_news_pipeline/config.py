@@ -17,4 +17,10 @@ class Settings(BaseSettings):
     http_timeout_seconds: int = Field(default=10, gt=0)
 
     # DB
-    database_url: str
+    database_url: str = Field(
+        default="",
+        min_length=1,
+        validate_default=True,
+    )
+
+    test_database_url: str | None = None
