@@ -168,7 +168,7 @@ def test_upsert_item_version_updates_last_seen_for_existing_version(
     assert persisted_version.title == "A test story"
 
 
-def test_upset_item_version_rejects_raw_response_for_differet_item(
+def test_upsert_item_version_rejects_raw_response_for_differet_item(
     db_session: Session, raw_item_response_factory: Callable[..., RawItemResponse]
 ) -> None:
     item_id = 12
@@ -188,3 +188,60 @@ def test_upset_item_version_rejects_raw_response_for_differet_item(
             item=item,
             created_at=None,
         )
+
+
+def test_upsert_item_version_does_not_move_lst_seen_at_backwards(
+    db_session: Session, raw_item_response_factory: Callable[..., RawItemResponse]
+) -> None:
+    item_id = 12
+    payload_hash = "a" * 64
+    latest_seen_at = datetime(2026, 2, 15, tzinfo=UTC)
+    older_seen_at = datetime(2026, 1, 15, tzinfo=UTC)
+
+    latest_raw_response = raw_item_response_factory(
+        item_id=item_id,
+        payload_hash=payload_hash,
+        fetched_at=latest_seen_at,
+    )
+
+    older_raw_response = raw_item_response_factory(
+        item_id=item_id,
+        payload_hash=payload_hash,
+        fetched_at=older_seen_at,
+    )
+
+    item = HackerNewsItemResponse.model_validate(
+        {
+            "id": item_id,
+            "type": "story",
+        }
+    )
+
+    repository = StagingItemVersionRepository(session=db_session)
+
+    first_version = repository.upsert_item_version(
+        raw_item_response=latest_raw_response,
+        item=item,
+        created_at=None,
+    )
+
+    second_version = repository.upsert_item_version(
+        raw_item_response=older_raw_response,
+        item=item,
+        created_at=None,
+    )
+
+    assert first_version.hn_item_version_id == second_version.hn_item_version_id
+    assert second_version.last_seen_at == latest_seen_at
+
+    db_session.expire_all()
+
+    stmt = select(StagingItemVersion).where(
+        StagingItemVersion.item_id == item_id,
+        StagingItemVersion.payload_hash == payload_hash,
+    )
+
+    persisted_versions = db_session.scalars(stmt).all()
+
+    assert len(persisted_versions) == 1
+    assert persisted_versions[0].last_seen_at == latest_seen_at

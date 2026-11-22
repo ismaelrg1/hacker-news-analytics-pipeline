@@ -5,7 +5,12 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from hacker_news_pipeline.api.schemas import HackerNewsItemResponse
-from hacker_news_pipeline.db.orm_models import RawItemResponse, StagingItemVersion
+from hacker_news_pipeline.db.orm_models import (
+    RawFeedResponse,
+    RawItemResponse,
+    StagingFeedRankSnapshot,
+    StagingItemVersion,
+)
 
 
 class StagingItemVersionRepository:
@@ -61,3 +66,42 @@ class StagingItemVersionRepository:
         )
 
         return result.scalar_one()
+
+
+class StagingFeedRankSnapshotRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def insert_rank_snapshots_if_absent(
+        self,
+        *,
+        raw_feed_response: RawFeedResponse,
+    ) -> int:
+        if not raw_feed_response.response_payload:
+            return 0
+
+        values = []
+
+        for rank_position, item_id in enumerate(
+            raw_feed_response.response_payload,
+            start=1,
+        ):
+            values.append(
+                {
+                    "raw_feed_response_id": raw_feed_response.raw_feed_response_id,
+                    "feed_name": raw_feed_response.feed_name,
+                    "item_id": item_id,
+                    "rank_position": rank_position,
+                    "observed_at": raw_feed_response.fetched_at,
+                }
+            )
+
+        insert_statement = insert(StagingFeedRankSnapshot).values(values)
+
+        upsert_statement = insert_statement.on_conflict_do_nothing().returning(
+            StagingFeedRankSnapshot.hn_feed_rank_snapshot_id
+        )
+
+        result = self._session.execute(upsert_statement)
+
+        return len(result.scalars().all())
