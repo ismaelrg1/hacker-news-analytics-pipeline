@@ -121,3 +121,10 @@ def test_feed_response_rejects_invalid_item_ids(
 ) -> None:
     with pytest.raises(ValidationError):
         HackerNewsFeedResponse.model_validate(invalid_payload)
+
+
+def test_feed_response_rejects_duplicate_item_ids() -> None:
+    payload = [1, 42, 1]
+
+    with pytest.raises(ValidationError, match="duplicate"):
+        HackerNewsFeedResponse.model_validate(payload)

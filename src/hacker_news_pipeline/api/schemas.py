@@ -1,6 +1,6 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 
 class HackerNewsItemResponse(BaseModel):
@@ -40,4 +40,8 @@ NonEmptyFeedItemIds = Annotated[
 
 
 class HackerNewsFeedResponse(RootModel[NonEmptyFeedItemIds]):
-    pass
+    @model_validator(mode="after")
+    def validate_no_duplicate_item_ids(self) -> Self:
+        if len(self.root) != len(set(self.root)):
+            raise ValueError("Feed response contains duplicate item IDs")
+        return self
