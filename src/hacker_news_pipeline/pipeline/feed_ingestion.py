@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -11,6 +12,8 @@ from hacker_news_pipeline.db.staging_repositories import (
 from hacker_news_pipeline.pipeline.hashing import calculate_payload_hash
 
 HACKER_NEWS_SOURCE_NAME = "hacker_news"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,12 @@ def ingest_feed(
 ) -> FeedIngestionResult:
 
     fetched_feed = client.get_feed(feed_name=feed_name)
+
+    logger.info(
+        "Fetched Hacker News feed | feed_name=%s item_count=%s",
+        feed_name,
+        len(fetched_feed.feed.root),
+    )
 
     fetched_at = datetime.now(UTC)
 
@@ -57,6 +66,15 @@ def ingest_feed(
                 raw_feed_response=raw_feed_response,
             )
         )
+
+    logger.info(
+        "Persisted Hacker News feed | "
+        "feed_name=%s raw_feed_response_id=%s "
+        "inserted_rank_snapshot_count=%s",
+        feed_name,
+        raw_feed_response_id,
+        inserted_rank_snapshot_count,
+    )
 
     return FeedIngestionResult(
         raw_feed_response_id=raw_feed_response_id,
