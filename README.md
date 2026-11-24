@@ -1,136 +1,197 @@
 # Hacker News Analytics Pipeline
 
-## Objective
+Local pipeline that ingests public Hacker News discovery feeds into PostgreSQL
+while preserving the API history needed for later analytics.
 
-Build a local, end-to-end analytics pipeline for public Hacker News data.
+The current implementation focuses on a reliable ingestion foundation. dbt
+models, analytical marts, and Airflow orchestration are deliberately the next
+stages of the project, not features that already exist.
 
-The pipeline will ingest stories, comments, users, rankings, and changed items
-from the official Hacker News API. It will preserve raw API evidence, publish
-normalized PostgreSQL layers, build tested dbt analytical marts, and use Apache
-Airflow to orchestrate ingestion and transformation workflows.
-
-The initial project focus is reliable ingestion and analytics-ready data. A
-visual dashboard is deliberately out of scope until the marts are stable.
-
-## Architecture
+## Current architecture
 
 ```text
 Hacker News API
         |
         v
-Python ingestion + Pydantic validation
+Python CLI + httpx + Pydantic validation
         |
-        v
-PostgreSQL raw and staging layers
+        +--> feed responses
+        |      -> raw.hn_feed_responses
+        |      -> staging.feed_rank_snapshots
         |
-        v
-dbt intermediate models, marts, and tests
-        |
-        v
-Analytics-ready tables and views
-
-Apache Airflow orchestrates schedules, dependencies, retries, and observability.
+        +--> item responses
+               -> raw.hn_item_responses
+               -> staging.item_versions
 ```
 
-## Data Flow
+`ingest_discovery_feeds` coordinates the workflow:
 
-```text
-Hacker News API
-    |
-    +--> story feeds: newstories, topstories, beststories
-    |
-    +--> item details: stories and comments
-    |
-    +--> changed items and profiles
-             |
-             v
-raw.api_ingestions and raw payload versions
-             |
-             v
-staging current stories, comments, users, and rank snapshots
-             |
-             v
-dbt intermediate transformations
-             |
-             v
-dbt marts for engagement, domains, authors, and ranking history
-```
+1. Fetch each requested feed (`newstories`, `topstories`, or `beststories`).
+2. Persist its complete response as a raw observation.
+3. Expand its ordered item IDs into rank snapshots.
+4. Deduplicate item IDs across the requested feeds while preserving their first
+   appearance.
+5. Fetch each unique item once, persist the raw response, and upsert its
+   normalized version.
 
-## Planned DAGs
+For example, if an item is present in both `topstories` and `newstories`, both
+rank observations are retained, but the item detail endpoint is fetched once
+during that run.
 
-```text
-hn_discovery_ingestion
-  discover story IDs from feeds
-      -> fetch item details
-      -> persist raw payloads
-      -> normalize current items
-      -> capture ranking snapshots
+## Data model and history
 
-hn_changed_items_sync
-  discover changed item and profile IDs
-      -> fetch changed payloads
-      -> persist new raw versions
-      -> update current staging records
-
-hn_daily_analytics
-  dbt build core models
-      -> dbt build marts
-      -> dbt test
-      -> publish analytics-ready status
-```
-
-The DAGs will be introduced incrementally. The project will begin with a
-standalone ingestion pipeline and a PostgreSQL schema before adding dbt and
-Airflow orchestration.
-
-## Data Layers
-
-| Layer | Responsibility |
+| Table | Purpose |
 | --- | --- |
-| `raw` | Traceable API responses and immutable payload versions. |
-| `staging` | Typed, normalized, deduplicated current records and ranking snapshots. |
-| `intermediate` | Reusable dbt transformations, such as comment-tree and story-history logic. |
-| `mart` | Analytics-ready datasets for BI, exploration, and future dashboards. |
+| `raw.hn_feed_responses` | Immutable observations of feed payloads, including their payload hash and fetch time. |
+| `raw.hn_item_responses` | Immutable observations of individual Hacker News item payloads. Repeated reads are retained. |
+| `staging.feed_rank_snapshots` | One row per item and position in a specific feed response. This preserves ranking history. |
+| `staging.item_versions` | One normalized version per `(item_id, payload_hash)`. Re-observing the same payload updates `last_seen_at`; a changed payload creates a new version. |
 
-## Technology Stack
+This means two staging versions for the same story can be correct. For example,
+when its `score` changes, its API payload hash changes too, so the project
+stores a new historical version instead of overwriting the old one.
 
-- Python 3.12 and `uv`
-- `httpx` for HTTP access
-- Pydantic v2 and `pydantic-settings` for validation and configuration
-- PostgreSQL, SQLAlchemy, Psycopg, and Alembic
-- dbt with the PostgreSQL adapter
-- Apache Airflow and Docker Compose
-- pytest for unit and integration tests
-- Ruff and Pyright for code quality and static analysis
+## Project structure
 
-## Analytics Outputs
+```text
+.
+├── alembic/                         # PostgreSQL schema migrations
+├── src/hacker_news_pipeline/
+│   ├── api/                         # HN client and Pydantic API schemas
+│   ├── db/                          # SQLAlchemy ORM, sessions, repositories
+│   ├── pipeline/                    # Hashing and ingestion workflows
+│   ├── config.py                    # Environment-based settings
+│   ├── logging_config.py
+│   └── main.py                      # CLI entry point
+├── tests/
+│   ├── unit/
+│   └── integration/
+├── compose.yaml                     # Local PostgreSQL 16 service
+└── pyproject.toml
+```
 
-Planned marts include:
+## Prerequisites
 
-- Daily story engagement by feed and story type.
-- Story score and comment-count history.
-- Most shared external domains.
-- Author activity and contribution patterns.
-- Comment-tree depth and discussion metrics.
-- Story score velocity and ranking movement.
+- Python 3.12
+- [uv](https://docs.astral.sh/uv/)
+- Docker and Docker Compose
 
-## Reliability and Data Quality
+## Local setup
 
-- Use `item_id` as the stable identity for Hacker News items.
-- Preserve raw payload versions to support traceability and reprocessing.
-- Use idempotent loads and explicit conflict handling for retries and backfills.
-- Validate external payloads at the ingestion boundary.
-- Record ingestion counts, rejected records, payload hashes, and execution context.
-- Add dbt schema, grain, and business-rule tests before publishing marts.
-- Keep credentials and local runtime configuration outside version control.
+Create the local configuration file and adjust values if necessary:
 
-## Project Status
+```bash
+cp .env.example .env
+```
 
-Project initialization in progress.
+The `.env` file is local-only and must not be committed. It contains the
+development and test database URLs used by the project.
 
-The Hacker News source and high-level architecture have been selected. Database
-schema, Python ingestion, dbt models, Airflow DAGs, and automated tests are not
-implemented yet.
+Start PostgreSQL and install the project dependencies:
+
+```bash
+docker compose up -d
+uv sync
+```
+
+Apply the schema migration to the development database:
+
+```bash
+uv run alembic upgrade head
+```
+
+The integration suite requires a separate `hacker_news_test` database. Create
+it once, then apply the same migrations with the test URL:
+
+```bash
+docker compose exec postgres psql \
+  -U analytics_user \
+  -d postgres \
+  -c "CREATE DATABASE hacker_news_test;"
+
+HN_PIPELINE_DATABASE_URL="postgresql+psycopg://analytics_user:change_me_for_local_development@localhost:5433/hacker_news_test" \
+  uv run alembic upgrade head
+```
+
+If the database already exists, PostgreSQL will report that fact; it is safe to
+skip the creation command and run the migration command.
+
+## Run an ingestion
+
+Use one or more `--feed` flags. Each selected feed can contain hundreds of
+item IDs, so the command makes one detail request per unique ID.
+
+```bash
+uv run python -m hacker_news_pipeline.main --feed topstories
+
+uv run python -m hacker_news_pipeline.main \
+  --feed topstories \
+  --feed newstories \
+  --feed beststories
+```
+
+Supported feeds are `newstories`, `topstories`, and `beststories`. The command
+returns exit code `0` on success and `1` if the pipeline fails; details are
+written through Python logging.
+
+## Verify the stored data
+
+For a quick local inspection:
+
+```bash
+docker compose exec postgres psql \
+  -U analytics_user \
+  -d hacker_news \
+  -P pager=off \
+  -c 'SELECT COUNT(*) AS raw_feed_responses FROM raw.hn_feed_responses;
+      SELECT COUNT(*) AS rank_snapshots FROM staging.feed_rank_snapshots;
+      SELECT COUNT(*) AS raw_item_responses FROM raw.hn_item_responses;
+      SELECT COUNT(*) AS item_versions FROM staging.item_versions;'
+```
+
+## Tests and quality checks
+
+Unit tests isolate API, schema, hashing, CLI, and coordination behavior.
+Integration tests use the dedicated PostgreSQL test database and verify ORM
+constraints, repositories, transactions, and ingestion persistence.
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
+uv run pytest
+uv run alembic check
+```
+
+## Design decisions
+
+- Raw tables preserve every successful API observation for traceability and
+  possible reprocessing.
+- Payload hashes provide deterministic change detection. JSON object-key order
+  does not affect a hash; list order does, because ranking order is meaningful.
+- Feed rank snapshots are insert-only and idempotent per raw feed response.
+- Item versions use PostgreSQL upsert logic. Repeated identical payloads move
+  `last_seen_at` forward without creating a duplicate version.
+- Feed and item ingestion each run in their own transaction. The discovery
+  workflow coordinates them, while failures are propagated to the CLI instead
+  of being silently ignored.
+
+## Current scope and next steps
+
+Implemented:
+
+- Hacker News API client and Pydantic response validation.
+- PostgreSQL raw and staging schemas managed by Alembic.
+- Raw and staging repositories with database constraints and idempotent writes.
+- Feed, item, and discovery ingestion workflows.
+- Command-line entry point, structured logging, unit tests, and PostgreSQL
+  integration tests.
+
+Planned next:
+
+- dbt intermediate models, marts, documentation, and analytical tests.
+- Apache Airflow DAGs for scheduled discovery and changed-item synchronization.
+- Support for the `updates` endpoint, users, and more complete comment handling.
 
 ## Source
 
