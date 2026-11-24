@@ -63,3 +63,51 @@ models:
         data_tests:
           - not_null
 
+  - name: int_story_version_history
+    description: >
+      History of distinct observed Hacker News story versions. Each row represents
+      one item_id and payload_hash combination and includes score and comment-count
+      values from the previous observed version.
+
+    columns:
+      - name: hn_item_version_id
+        description: Identifier of the staging item version.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: item_id
+        description: Stable identifier of the Hacker News story.
+        data_tests:
+          - not_null
+
+      - name: payload_hash
+        description: SHA-256 hash of the raw payload for this story version.
+        data_tests:
+          - not_null
+
+      - name: first_seen_at
+        description: Timestamp when the pipeline first observed this payload version.
+        data_tests:
+          - not_null
+
+      - name: last_seen_at
+        description: Timestamp when the pipeline most recently observed this payload version.
+        data_tests:
+          - not_null
+
+      - name: score
+        description: Story score recorded in this payload version.
+
+      - name: descendants_count
+        description: Total comment count recorded in this payload version.
+
+      - name: previous_score
+        description: Score from the previous observed version of the same story.
+
+      - name: previous_descendants_count
+        description: Comment count from the previous observed version of the same story.
+
+      - name: previous_first_seen_at
+        description: First observation timestamp of the previous version of the same story.
+

@@ -83,12 +83,55 @@ The model intentionally keeps the same story more than once when it appears in
 different feeds. Those rows represent different ranking observations, not
 duplicates.
 
+## How have story score and comment count changed between observed versions?
+
+**Model:** `mart_story_engagement_changes`
+
+**Question:** How did a story's score and total comment count change between a
+distinct observed payload version and its preceding observed version?
+
+**Grain:** one row per `item_id` and `payload_hash`.
+
+**Includes:** the current and previous score, the current and previous total
+comment count, the absolute changes between them, and the first and last times
+that each payload version was observed.
+
+**First version behavior:** the first observed version of a story has no
+previous version. Its `previous_*` and change fields are therefore `NULL`; the
+model does not assume that the story started from score or comment count zero.
+
+**Important limitation:** these are changes detected between pipeline
+observations, not the exact time at which Hacker News changed the story. A new
+payload version can also result from a field other than score or comment count
+changing, so both engagement changes can legitimately be zero.
+
+Example exploration query:
+
+```sql
+SELECT
+    item_id,
+    first_seen_at,
+    score,
+    previous_score,
+    score_change,
+    descendants_count,
+    previous_descendants_count,
+    descendants_change
+FROM dbt_dev.mart_story_engagement_changes
+WHERE item_id = 50547698
+ORDER BY first_seen_at, hn_item_version_id;
+```
+
 ## Related dbt models
 
 ```text
 staging.item_versions
     -> int_current_item_versions
     -> mart_current_stories
+
+staging.item_versions
+    -> int_story_version_history
+    -> mart_story_engagement_changes
 
 staging.feed_rank_snapshots
     -> int_latest_feed_snapshots
@@ -98,5 +141,6 @@ int_latest_feed_snapshots + mart_current_stories
 ```
 
 The dbt tests enforce the main contracts: current item uniqueness, allowed feed
-and item types, required fields, and uniqueness of `feed_name` plus
-`rank_position` for the latest snapshots and story-ranking mart.
+and item types, required fields, uniqueness of `feed_name` plus `rank_position`
+for the latest snapshots and story-ranking mart, temporal ordering of story
+versions, and consistency of calculated engagement changes.

@@ -29,6 +29,8 @@ dbt sources, intermediate models, and marts
         +--> dbt_dev.mart_current_stories
         |
         +--> dbt_dev.mart_current_story_rankings
+        |
+        +--> dbt_dev.mart_story_engagement_changes
 ```
 
 `ingest_discovery_feeds` coordinates the workflow:
@@ -67,8 +69,10 @@ the target schema (`dbt_dev` for the local development profile).
 | --- | --- | --- | --- |
 | Intermediate | `int_current_item_versions` | One row per `item_id` | Most recently observed version of each Hacker News item. |
 | Intermediate | `int_latest_feed_snapshots` | One row per `feed_name` and `rank_position` | All positions from the most recently observed snapshot of each feed. |
+| Intermediate | `int_story_version_history` | One row per `item_id` and `payload_hash` | Historical story versions with values from the preceding observed version. |
 | Mart | `mart_current_stories` | One row per visible story | Latest known attributes of visible stories. |
 | Mart | `mart_current_story_rankings` | One row per `feed_name` and `rank_position` | Visible stories in the latest observed ranking of each feed. |
+| Mart | `mart_story_engagement_changes` | One row per `item_id` and `payload_hash` | Absolute score and comment-count changes between observed story versions. |
 
 See [analytics questions](docs/analytics-questions.md) for the questions,
 semantics, limitations, and exploration queries supported by the marts.
@@ -253,13 +257,14 @@ Implemented:
 - Feed, item, and discovery ingestion workflows.
 - Command-line entry point, structured logging, unit tests, and PostgreSQL
   integration tests.
-- dbt source definitions, two intermediate models, two analytical marts, and
-  data tests for required fields, accepted values, and model grain.
+- dbt source definitions, three intermediate models, three analytical marts, and
+  data tests for required fields, accepted values, model grain, temporal
+  ordering, and calculated business metrics.
 - dbt-generated documentation and analytical dataset documentation.
 
 Planned next:
 
-- Historical marts for score, comment-count, and ranking movement analysis.
+- Historical ranking-movement analysis.
 - Apache Airflow DAGs for scheduled discovery and changed-item synchronization.
 - Support for the `updates` endpoint, users, and more complete comment handling.
 

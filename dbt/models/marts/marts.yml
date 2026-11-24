@@ -60,3 +60,58 @@ models:
         description: Timestamp when the selected discovery-feed snapshot was observed.
         data_tests:
           - not_null
+
+
+  - name: mart_story_engagement_changes
+    description: >
+      Observed score and comment-count changes between each distinct Hacker News
+      story version and its preceding observed version. The model contains one row
+      per item_id and payload_hash combination.
+
+    columns:
+      - name: item_id
+        description: Stable identifier of the Hacker News story.
+        data_tests:
+          - not_null
+
+      - name: hn_item_version_id
+        description: Identifier of the staging item version.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: payload_hash
+        description: SHA-256 hash of the raw payload for this story version.
+        data_tests:
+          - not_null
+
+      - name: first_seen_at
+        description: Timestamp when the pipeline first observed this payload version.
+        data_tests:
+          - not_null
+
+      - name: last_seen_at
+        description: Timestamp when the pipeline most recently observed this payload version.
+        data_tests:
+          - not_null
+
+      - name: score
+        description: Story score recorded in this payload version.
+
+      - name: previous_score
+        description: Score recorded in the preceding observed version of the same story.
+
+      - name: score_change
+        description: Absolute change in score from the preceding observed version.
+
+      - name: descendants_count
+        description: Total comment count recorded in this payload version.
+
+      - name: previous_descendants_count
+        description: Comment count recorded in the preceding observed version of the same story.
+
+      - name: descendants_change
+        description: Absolute change in comment count from the preceding observed version.
+
+      - name: previous_first_seen_at
+        description: First observation timestamp of the preceding version of the same story.
