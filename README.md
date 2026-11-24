@@ -1,11 +1,11 @@
 # Hacker News Analytics Pipeline
 
-Local pipeline that ingests public Hacker News discovery feeds into PostgreSQL
-while preserving the API history needed for later analytics.
+Local pipeline that ingests public Hacker News discovery feeds into PostgreSQL,
+preserves their history, and publishes tested analytical views with dbt.
 
-The current implementation focuses on a reliable ingestion foundation. dbt
-models, analytical marts, and Airflow orchestration are deliberately the next
-stages of the project, not features that already exist.
+The current implementation combines a Python ingestion pipeline with dbt
+intermediate models and marts. Apache Airflow orchestration is deliberately a
+future stage, not a feature that already exists.
 
 ## Current architecture
 
@@ -22,6 +22,13 @@ Python CLI + httpx + Pydantic validation
         +--> item responses
                -> raw.hn_item_responses
                -> staging.item_versions
+        |
+        v
+dbt sources, intermediate models, and marts
+        |
+        +--> dbt_dev.mart_current_stories
+        |
+        +--> dbt_dev.mart_current_story_rankings
 ```
 
 `ingest_discovery_feeds` coordinates the workflow:
@@ -51,11 +58,28 @@ This means two staging versions for the same story can be correct. For example,
 when its `score` changes, its API payload hash changes too, so the project
 stores a new historical version instead of overwriting the old one.
 
+## dbt analytical layer
+
+dbt treats the Python-managed `staging` tables as sources and builds views in
+the target schema (`dbt_dev` for the local development profile).
+
+| Layer | Model | Grain | Purpose |
+| --- | --- | --- | --- |
+| Intermediate | `int_current_item_versions` | One row per `item_id` | Most recently observed version of each Hacker News item. |
+| Intermediate | `int_latest_feed_snapshots` | One row per `feed_name` and `rank_position` | All positions from the most recently observed snapshot of each feed. |
+| Mart | `mart_current_stories` | One row per visible story | Latest known attributes of visible stories. |
+| Mart | `mart_current_story_rankings` | One row per `feed_name` and `rank_position` | Visible stories in the latest observed ranking of each feed. |
+
+See [analytics questions](docs/analytics-questions.md) for the questions,
+semantics, limitations, and exploration queries supported by the marts.
+
 ## Project structure
 
 ```text
 .
 ├── alembic/                         # PostgreSQL schema migrations
+├── dbt/                             # dbt project, models, tests, and profile
+├── docs/                            # Analytical dataset documentation
 ├── src/hacker_news_pipeline/
 │   ├── api/                         # HN client and Pydantic API schemas
 │   ├── db/                          # SQLAlchemy ORM, sessions, repositories
@@ -98,6 +122,15 @@ Apply the schema migration to the development database:
 
 ```bash
 uv run alembic upgrade head
+```
+
+Load the local environment variables before running dbt. The dbt profile uses
+environment variables rather than storing database credentials in YAML:
+
+```bash
+set -a
+source .env
+set +a
 ```
 
 The integration suite requires a separate `hacker_news_test` database. Create
@@ -149,6 +182,32 @@ docker compose exec postgres psql \
       SELECT COUNT(*) AS item_versions FROM staging.item_versions;'
 ```
 
+## Build the analytical models
+
+dbt reads the existing `staging` schema and creates models in `dbt_dev`:
+
+```bash
+uv run dbt debug --project-dir dbt --profiles-dir dbt
+
+uv run dbt build \
+  --project-dir dbt \
+  --profiles-dir dbt
+
+uv run dbt docs generate \
+  --project-dir dbt \
+  --profiles-dir dbt
+```
+
+Use `dbt show` to preview a model without materializing it:
+
+```bash
+uv run dbt show \
+  --select mart_current_story_rankings \
+  --limit 20 \
+  --project-dir dbt \
+  --profiles-dir dbt
+```
+
 ## Tests and quality checks
 
 Unit tests isolate API, schema, hashing, CLI, and coordination behavior.
@@ -161,6 +220,9 @@ uv run ruff check .
 uv run pyright
 uv run pytest
 uv run alembic check
+
+set -a && source .env && set +a
+uv run dbt build --project-dir dbt --profiles-dir dbt
 ```
 
 ## Design decisions
@@ -175,6 +237,11 @@ uv run alembic check
 - Feed and item ingestion each run in their own transaction. The discovery
   workflow coordinates them, while failures are propagated to the CLI instead
   of being silently ignored.
+- dbt models use `source()` only for the Python-managed `staging` tables and
+  `ref()` for dependencies between dbt models. This keeps lineage explicit.
+- The dbt marts are views because the local data volume and transformations are
+  currently small. Their materialization can be revisited when workload and
+  refresh requirements change.
 
 ## Current scope and next steps
 
@@ -186,10 +253,13 @@ Implemented:
 - Feed, item, and discovery ingestion workflows.
 - Command-line entry point, structured logging, unit tests, and PostgreSQL
   integration tests.
+- dbt source definitions, two intermediate models, two analytical marts, and
+  data tests for required fields, accepted values, and model grain.
+- dbt-generated documentation and analytical dataset documentation.
 
 Planned next:
 
-- dbt intermediate models, marts, documentation, and analytical tests.
+- Historical marts for score, comment-count, and ranking movement analysis.
 - Apache Airflow DAGs for scheduled discovery and changed-item synchronization.
 - Support for the `updates` endpoint, users, and more complete comment handling.
 

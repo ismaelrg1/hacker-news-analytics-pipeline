@@ -1,0 +1,16 @@
+name: 'hacker_news_analytics'
+version: '1.0.0'
+config-version: 2
+
+profile: 'hacker_news_analytics'
+
+model-paths: ["models"]
+test-paths: ["tests"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  hacker_news_analytics:
+    +materialized: view

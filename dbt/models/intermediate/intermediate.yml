@@ -1,0 +1,65 @@
+version: 2
+models:
+  - name: int_current_item_versions
+    description: >
+      Most recently observed normalized version of each Hacker News item.
+      The model contains exactly one row per item_id.
+
+    columns:
+      - name: item_id
+        description: Stable identifier of the Hacker News item.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: hn_item_version_id
+        description: Identifier of the selected staging item version.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: payload_hash
+        description: SHA-256 hash of the raw payload for the selected version.
+        data_tests:
+          - not_null
+
+      - name: last_seen_at
+        description: Timestamp when the selected payload version was most recently observed.
+        data_tests:
+          - not_null
+
+
+  - name: int_latest_feed_snapshots
+    description: >
+      Most recently observed snapshot of each Hacker News discovery feed.
+      The model retains every ranked item from the selected snapshot.
+
+    columns:
+      - name: item_id
+        description: Stable identifier of the Hacker News item.
+        data_tests:
+          - not_null
+
+      - name: raw_feed_response_id
+        description: Identifier of the raw API response that produced the selected snapshot.
+        data_tests:
+          - not_null
+
+      - name: feed_name
+        description: Name of the Hacker News discovery feed represented by the snapshot.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["newstories", "topstories", "beststories"]
+
+      - name: rank_position
+        description: Position of the item within the selected feed snapshot.
+        data_tests:
+          - not_null
+        
+      - name: observed_at
+        description: Timestamp when the selected feed snapshot was observed.
+        data_tests:
+          - not_null
+

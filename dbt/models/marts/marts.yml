@@ -1,0 +1,62 @@
+version: 2
+models:
+  - name: mart_current_stories
+    description: >
+      Current visible Hacker News stories. The model contains one row per story
+      using the most recently observed item version.
+
+    columns:
+      - name: item_id
+        description: Stable identifier of the Hacker News item.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: item_type
+        description: Hacker News item type. This mart contains only stories.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["story"]
+
+  - name: mart_current_story_rankings
+    description: >
+      Current visible Hacker News stories in the most recently observed snapshot
+      of each discovery feed. The model contains one row per feed_name and
+      rank_position.
+
+    columns:
+      - name: item_id
+        description: Stable identifier of the Hacker News story in the selected feed snapshot.
+        data_tests:
+          - not_null
+
+      - name: item_type
+        description: Hacker News item type. This mart contains only stories.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["story"]
+
+      - name: raw_feed_response_id
+        description: Identifier of the raw API response that produced the selected feed snapshot.
+        data_tests:
+          - not_null
+          
+      - name: rank_position
+        description: Position of the story within the selected discovery-feed snapshot.
+        data_tests:
+          - not_null
+
+      - name: feed_name
+        description: Name of the Hacker News discovery feed in which the story appears.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["newstories", "topstories", "beststories"]
+
+      - name: observed_at
+        description: Timestamp when the selected discovery-feed snapshot was observed.
+        data_tests:
+          - not_null

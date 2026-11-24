@@ -1,0 +1,19 @@
+version: 2
+sources:
+  - name: hacker_news_staging
+    schema: staging
+    description: >
+      Validated and normalized exchange rates loaded by the Python financial pipeline.
+
+    tables: 
+      - name: item_versions
+        description: >
+          Normalized history of Hacker News item payload versions. Each row represents
+          a unique item_id and payload_hash combination. Re-observing an identical
+          payload updates last_seen_at; a changed payload creates a new version.
+      
+      - name: feed_rank_snapshots
+        description: >
+          Ordered snapshots of Hacker News discovery feeds. Each row records an item,
+          its rank position, and the time at which it was observed in a specific raw
+          feed response.
